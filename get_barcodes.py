@@ -21,11 +21,11 @@ range_size = 10
 
 
 class Finder:
-    def __init__(self, window_size=25, min_polya_fraction=0.85):
+    def __init__(self, window_size=20, min_polya_fraction=0.8):
         self.window_size = window_size
         self.min_polya_fraction = min_polya_fraction
         self.polyA_count = int(self.window_size * self.min_polya_fraction)
-        self.partial_R1 = Seq(PARTIAL_R1)
+        self.partial_R1 = Seq(revComp(PARTIAL_R1))
         self.partialR1_indexer = KmerIndexer([PARTIAL_R1], kmer_size=4)
 
     # poly A tail detection
@@ -138,31 +138,36 @@ def get_file_name(input_file_name):
     return os.path.splitext(base)[0]
 
 
-def process(input_file_name, output_dir, umi_indexers, barcode_and_umi_to_gene):
+def process(input_file_name, output_dir, data):
+    umi_indexers, barcode_and_umi_to_gene, read_to_gene = data
     finder = Finder()
-    fasta_sequences = SeqIO.parse(open(input_file_name), 'fasta')
+    if input_file_name[-1] == 'q':
+        fasta_sequences = SeqIO.parse(open(input_file_name), 'fastq')
+    else:
+        fasta_sequences = SeqIO.parse(open(input_file_name), 'fasta')
     file_name = get_file_name(input_file_name)
     output_file = output_dir + "/" + file_name + ".tsv"
     barcode_indexer = KmerIndexer(barcodes, kmer_size=5)  # allows two mistakes
 
+    using_gene = False
     with open(output_file, 'w') as out_file:
-        for fasta in tqdm(fasta_sequences, total=10000, desc="processing fasta sequences"):
+        for fasta in tqdm(fasta_sequences, total=200000, desc="processing fasta sequences"):
             name, sequence = fasta.id, str(fasta.seq)
-            gene_id, _, barcode, umi = name.split('_')[:4]
             start = finder.find_polya(sequence)
 
             if start == -1:
                 sequence = revComp(sequence)
                 start = finder.find_polya(sequence)
                 if start == -1:
-                    out_file.write(name + "\t" + NOT_FOUND + "\t" + NOT_FOUND + "\n")
+                    out_file.write(name + "\t" + NOT_FOUND + "\t" + NOT_FOUND + "\tbad_polyA" + "\n")
                     continue
 
             start += 30
             best_match, partial_start = finder.find_partial_R1_kmer(sequence, start)  # allow 3 possible mistakes
             if partial_start == -1:
-                out_file.write(name + "\t" + NOT_FOUND + "\t" + NOT_FOUND + "\n")
+                out_file.write(name + "\t" + NOT_FOUND + "\t" + NOT_FOUND + "\tbad_partial" + "\n")
                 continue
+
             hypothetical_barcode_start = partial_start - BARCODE_LENGTH
             offset = 4
             bc_candidates = kmer_scan(barcode_indexer, hypothetical_barcode_start - offset,
@@ -181,22 +186,39 @@ def process(input_file_name, output_dir, umi_indexers, barcode_and_umi_to_gene):
                 umi_candidates = kmer_scan(umi_indexers[found_bc], start - offset,
                                            found_bc_pos - UMI_LENGTH - 1, sequence, str_length=UMI_LENGTH + 1, gap=3)
 
-                found_umi = NOT_FOUND
-                for umi_cnd in umi_candidates:
-                    key = get_key(found_bc, umi_cnd)
-                    if key in barcode_and_umi_to_gene:
-                        if barcode_and_umi_to_gene[key] == gene_id:
-                            found_umi = umi_cnd
-                            break
+                if using_gene:
+                    found_umi = NOT_FOUND
+                    if name not in read_to_gene:
+                        break
+                    gene_id = read_to_gene[name]
+
+                    for umi_cnd in umi_candidates:
+                        key = get_key(found_bc, umi_cnd)
+                        if key in barcode_and_umi_to_gene:
+                            if barcode_and_umi_to_gene[key] == gene_id:
+                                found_umi = umi_cnd
+                                break
+                else:
+                    found_umi, _ = find_candidate_with_max_score(umi_candidates,
+                                                                 sequence[start - offset:
+                                                                          start + UMI_LENGTH + offset])
 
                 out_file.write(name + "\t" + found_bc + "\t" + found_umi + "\n")
+
 
 def prelim(args):
     global barcodes
 
     barcode_and_umi_to_gene = dict()
     barcode_to_umi_indexer = dict()
+    read_to_gene = dict()
     barcode_to_umi_set = defaultdict(set)
+
+    gene_file = args.geneFile.replace(u'\xa0', u'')
+    with open(gene_file) as f:
+        for line in tqdm(f, total=10000, desc="reading reads to genes map"):
+            read_id, gene_id = line.strip('\n').split('\t')[:2]
+            read_to_gene[read_id] = gene_id
 
     sd_file = args.sdFile.replace(u'\xa0', u'')
     barcodes = set()
@@ -211,7 +233,9 @@ def prelim(args):
     for key, umis in tqdm(barcode_to_umi_set.items(), desc="creating indexers"):
         barcode_to_umi_indexer[key] = KmerIndexer(umis, kmer_size=7)
 
-    return barcode_to_umi_indexer, barcode_and_umi_to_gene
+
+
+    return barcode_to_umi_indexer, barcode_and_umi_to_gene, read_to_gene
 
 
 def get_key(str1, str2):
@@ -222,6 +246,7 @@ def parse_args():
     parser = argparse.ArgumentParser(formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('fasta', type=str, help='fasta file')
     parser.add_argument('sdFile', type=str, help='genes, barcodes and umis')
+    parser.add_argument('geneFile', type=str, help='read ids to gene ids map')
     parser.add_argument('--outDir', default="./", type=str, help='directory to put output in')
     args = parser.parse_args()
     return args
@@ -229,8 +254,8 @@ def parse_args():
 
 def main():
     args = parse_args()
-    umi_indexers, barcode_and_umi_to_gene = prelim(args)
-    process(args.fasta, args.outDir, umi_indexers, barcode_and_umi_to_gene)
+    data = prelim(args)
+    process(args.fasta, args.outDir, data)
 
 
 if __name__ == "__main__":
