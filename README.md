@@ -4,4 +4,4 @@ Barcode search implemented. Preprocessing takes about 6 minutes and data process
 takes 7 minutes for every 100,000 reads.
 
 ### Usage 
-python get_barcodes.py --outDir /output/directory/ /FASTA/file/with/data /CSV/file/with/spatial/data
+python get_barcodes.py --outDir /output/directory/ /FASTA/file/with/data /CSV/file/with/spatial/data /CSV/read/to/gene/map
