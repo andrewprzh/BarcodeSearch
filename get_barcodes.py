@@ -10,6 +10,8 @@ from tqdm import tqdm
 from Bio import pairwise2
 from kmer_indexer import KmerIndexer
 from collections import defaultdict
+import gzip
+
 
 logger = logging.getLogger('IsoQuant')
 BARCODE_LENGTH = 16
@@ -141,17 +143,22 @@ def get_file_name(input_file_name):
 def process(input_file_name, output_dir, data):
     umi_indexers, barcode_and_umi_to_gene, read_to_gene = data
     finder = Finder()
-    if input_file_name[-1] == 'q':
+
+    if input_file_name.endswith("gz"):
+        h = gzip.open(input_file_name, "rt")
+        fasta_sequences = SeqIO.parse(h, "fastq")
+    elif input_file_name[-1] == 'q':
         fasta_sequences = SeqIO.parse(open(input_file_name), 'fastq')
     else:
         fasta_sequences = SeqIO.parse(open(input_file_name), 'fasta')
+
     file_name = get_file_name(input_file_name)
     output_file = output_dir + "/" + file_name + ".tsv"
     barcode_indexer = KmerIndexer(barcodes, kmer_size=5)  # allows two mistakes
 
-    using_gene = False
+    using_gene = len(read_to_gene) > 0
     with open(output_file, 'w') as out_file:
-        for fasta in tqdm(fasta_sequences, total=200000, desc="processing fasta sequences"):
+        for fasta in tqdm(fasta_sequences, total=20000000, desc="processing sequences"):
             name, sequence = fasta.id, str(fasta.seq)
             start = finder.find_polya(sequence)
 
@@ -214,11 +221,12 @@ def prelim(args):
     read_to_gene = dict()
     barcode_to_umi_set = defaultdict(set)
 
-    gene_file = args.geneFile.replace(u'\xa0', u'')
-    with open(gene_file) as f:
-        for line in tqdm(f, total=10000, desc="reading reads to genes map"):
-            read_id, gene_id = line.strip('\n').split('\t')[:2]
-            read_to_gene[read_id] = gene_id
+    if args.args.geneFile:
+        gene_file = args.geneFile.replace(u'\xa0', u'')
+        with open(gene_file) as f:
+            for line in tqdm(f, total=10000, desc="reading reads to genes map"):
+                read_id, gene_id = line.strip('\n').split('\t')[:2]
+                read_to_gene[read_id] = gene_id
 
     sd_file = args.sdFile.replace(u'\xa0', u'')
     barcodes = set()
@@ -233,8 +241,6 @@ def prelim(args):
     for key, umis in tqdm(barcode_to_umi_set.items(), desc="creating indexers"):
         barcode_to_umi_indexer[key] = KmerIndexer(umis, kmer_size=7)
 
-
-
     return barcode_to_umi_indexer, barcode_and_umi_to_gene, read_to_gene
 
 
@@ -244,8 +250,8 @@ def get_key(str1, str2):
 
 def parse_args():
     parser = argparse.ArgumentParser(formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('fasta', type=str, help='fasta file')
-    parser.add_argument('sdFile', type=str, help='genes, barcodes and umis')
+    parser.add_argument('fasta', type=str, help='file with reads', required=True)
+    parser.add_argument('sdFile', type=str, help='genes, barcodes and umis', required=True)
     parser.add_argument('geneFile', type=str, help='read ids to gene ids map')
     parser.add_argument('--outDir', default="./", type=str, help='directory to put output in')
     args = parser.parse_args()
