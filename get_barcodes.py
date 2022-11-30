@@ -50,7 +50,12 @@ class Finder:
         if i >= len(seq) - self.window_size:
             return -1
 
-        return i + max(0, seq[i:].find('AA'))
+        polya_pos = i + max(0, seq[i:].find('AA'))
+        j = polya_pos + 1
+        while j < len(seq) and (seq[j] == "A" or seq[j+1] == "A"):
+            j += 2
+
+        return polya_pos, j
 
     def find_partial_R1(self, sequence, start):
         seq1 = Seq(sequence[start:])
@@ -59,9 +64,9 @@ class Finder:
         return start + alignment.start
 
     def find_partial_R1_kmer(self, sequence, start, min_kmers=2):
-        offset = 23  # barcode + umi length approximately
+        offset = 20  # barcode + umi length approximately
         seq = sequence[start + offset:]
-        str_list = [seq[i:i + PARTIAL_R1_LENGTH] for i in range(20)]
+        str_list = [seq[i:i + PARTIAL_R1_LENGTH] for i in range(40)]
 
         best_match = -1
         pos = -1
@@ -160,17 +165,17 @@ def process(input_file_name, output_dir, data):
     with open(output_file, 'w') as out_file:
         for fasta in tqdm(fasta_sequences, total=20000000, desc="processing sequences"):
             name, sequence = fasta.id, str(fasta.seq)
-            start = finder.find_polya(sequence)
+            start, end = finder.find_polya(sequence)
 
             if start == -1:
                 sequence = revComp(sequence)
-                start = finder.find_polya(sequence)
+                start, end = finder.find_polya(sequence)
                 if start == -1:
                     out_file.write(name + "\t" + NOT_FOUND + "\t" + NOT_FOUND + "\tbad_polyA" + "\n")
                     continue
 
-            start += 30
-            best_match, partial_start = finder.find_partial_R1_kmer(sequence, start)  # allow 3 possible mistakes
+            #start += 30
+            best_match, partial_start = finder.find_partial_R1_kmer(sequence, end)  # allow 3 possible mistakes
             #print("%s %d %s %d" % (name, start, sequence[start:], partial_start))
 
             if partial_start == -1:
