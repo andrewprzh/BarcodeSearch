@@ -221,14 +221,14 @@ def prelim(args):
     read_to_gene = dict()
     barcode_to_umi_set = defaultdict(set)
 
-    if args.args.geneFile:
+    if args.args.read2gene:
         gene_file = args.geneFile.replace(u'\xa0', u'')
         with open(gene_file) as f:
             for line in tqdm(f, total=10000, desc="reading reads to genes map"):
                 read_id, gene_id = line.strip('\n').split('\t')[:2]
                 read_to_gene[read_id] = gene_id
 
-    sd_file = args.sdFile.replace(u'\xa0', u'')
+    sd_file = args.barcodes.replace(u'\xa0', u'')
     barcodes = set()
 
     with open(sd_file) as f:
@@ -250,10 +250,10 @@ def get_key(str1, str2):
 
 def parse_args():
     parser = argparse.ArgumentParser(formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('fasta', type=str, help='file with reads', required=True)
-    parser.add_argument('sdFile', type=str, help='genes, barcodes and umis', required=True)
-    parser.add_argument('geneFile', type=str, help='read ids to gene ids map')
-    parser.add_argument('--outDir', default="./", type=str, help='directory to put output in')
+    parser.add_argument('--reads', type=str, help='file with reads', required=True)
+    parser.add_argument('--barcodes', type=str, help='genes, barcodes and umis', required=True)
+    parser.add_argument('--read2gene', type=str, help='read ids to gene ids map')
+    parser.add_argument('--output', default="./", type=str, help='directory to put output in')
     args = parser.parse_args()
     return args
 
@@ -261,7 +261,7 @@ def parse_args():
 def main():
     args = parse_args()
     data = prelim(args)
-    process(args.fasta, args.outDir, data)
+    process(args.reads, args.output, data)
 
 
 if __name__ == "__main__":
