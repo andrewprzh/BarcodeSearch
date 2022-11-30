@@ -16,8 +16,8 @@ import gzip
 logger = logging.getLogger('IsoQuant')
 BARCODE_LENGTH = 16
 UMI_LENGTH = 12
-PARTIAL_R1 = "CTACACGACGCTCTTCCGATCT"
-PARTIAL_R1_LENGTH = 22
+PARTIAL_R1 =  "CTCTTCCGATCT" #"CTACACGACGCTCTTCCGATCT"
+PARTIAL_R1_LENGTH = len(PARTIAL_R1)
 NOT_FOUND = "not_found"
 range_size = 10
 
@@ -171,6 +171,8 @@ def process(input_file_name, output_dir, data):
 
             start += 30
             best_match, partial_start = finder.find_partial_R1_kmer(sequence, start)  # allow 3 possible mistakes
+            #print("%s %d %s %d" % (name, start, sequence[start:], partial_start))
+
             if partial_start == -1:
                 out_file.write(name + "\t" + NOT_FOUND + "\t" + NOT_FOUND + "\tbad_partial" + "\n")
                 continue
@@ -221,8 +223,8 @@ def prelim(args):
     read_to_gene = dict()
     barcode_to_umi_set = defaultdict(set)
 
-    if args.args.read2gene:
-        gene_file = args.geneFile.replace(u'\xa0', u'')
+    if args.read2gene:
+        gene_file = args.read2gene.replace(u'\xa0', u'')
         with open(gene_file) as f:
             for line in tqdm(f, total=10000, desc="reading reads to genes map"):
                 read_id, gene_id = line.strip('\n').split('\t')[:2]
@@ -253,8 +255,10 @@ def parse_args():
     parser.add_argument('--reads', type=str, help='file with reads', required=True)
     parser.add_argument('--barcodes', type=str, help='genes, barcodes and umis', required=True)
     parser.add_argument('--read2gene', type=str, help='read ids to gene ids map')
-    parser.add_argument('--output', default="./", type=str, help='directory to put output in')
+    parser.add_argument('--output', '-o', default="./", type=str, help='directory to put output in')
     args = parser.parse_args()
+    if not os.path.exists(args.output):
+        os.makedirs(args.output)
     return args
 
 
